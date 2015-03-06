@@ -1,29 +1,5 @@
 <?PHP
-/**
- *	NTP Class | PHP 5
- *
- *	Copyright (c) 2014
- *	Marco Delfini <info@marcodelfini.com>
- *	http://marcodelfini.com
- *
- *	This library is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU Lesser General Public
- *	License as published by the Free Software Foundation; either
- *	version 2.1 of the License, or (at your option) any later version.
- *
- *	This library is distributed in the hope that it will be useful,
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *	Lesser General Public License for more details.
- *
- *	You should have received a copy of the GNU Lesser General Public
- *	License along with this library; if not, write to the Free Software
- *	Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
- * 
- *  http://www.gnu.org/copyleft/lesser.html
- *
- *  
- *  EXAMPLE:
+/*
 DROP TABLE IF EXISTS `sessions`;
 CREATE TABLE `sessions` (
   `id` varchar(200) NOT NULL,
@@ -36,16 +12,17 @@ CREATE TABLE `sessions` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
-$sessions = new Session($server, $port, $user, $pass, $db, $charsetdb, $second_life, $salt);
+$sessions = new Session($server, $port, $user, $pass, $db, $charsetdb, $sub_domain, $second_life, $salt);
 */
 class Session
 {
 	var $SecondOfLife = 2592000;	// In secondi [30 giorni (60 * 60 * 24 * 30)]
 	var $resorsa;
 	var $BrowserHash;
+	var $SubDomain;
 	var $Salt;
 	
-	function Session($server, $port, $user, $pass, $db, $charsetdb = "latin1", $second_life = NULL, $salt = NULL){
+	function Session($server, $port, $user, $pass, $db, $charsetdb = "utf8", $sub_domain = NULL, $second_life = NULL, $salt = NULL){
 		if($second_life != NULL && is_integer($second_life)){
 			$this->SecondOfLife = $second_life;
 		}
@@ -53,6 +30,11 @@ class Session
 			$this->Salt = "";
 		}else{
 			$this->Salt = md5($salt);
+		}
+		if($sub_domain == NULL){
+			$this->SubDomain = "";
+		}else{
+			$this->SubDomain = $sub_domain;
 		}
 		$this->HashCalculation();
 		
@@ -71,9 +53,9 @@ class Session
 		@ini_set("session.gc_probability", 50);	// setta la probabilità che venga eseguito il garbage collector(spazzino) a 30%
 		@ini_set("session.gc_maxlifetime", $this->SecondOfLife);	//le sessioni scederanno dopo 60 secondi dalla creazione
 
-		session_set_save_handler(array(&$this,"Open"), array(&$this,"Close"), array(&$this,"Read"), array(&$this,"Write"), array(&$this,"Destroy"), array(&$this,"GC"));
 		register_shutdown_function("session_write_close");
-		session_set_cookie_params($this->SecondOfLife, "/", "", false);
+		session_set_cookie_params($this->SecondOfLife, "/", $this->SubDomain);
+		session_set_save_handler(array(&$this,"Open"), array(&$this,"Close"), array(&$this,"Read"), array(&$this,"Write"), array(&$this,"Destroy"), array(&$this,"GC"));
 		session_start();
 	}
 	
@@ -117,7 +99,8 @@ class Session
 			if(!is_numeric($session_data)){
 				$session_data = mysql_real_escape_string($session_data, $res);
 			}
-			$sql = "INSERT INTO sessions (id, host, time, expiration, last_ip, hash, data) VALUES ('".$this->valid_session($session_id)."', '".$_SERVER['HTTP_HOST']."', NOW(), (NOW() + INTERVAL ".$this->SecondOfLife." SECOND), '".$_SERVER['REMOTE_ADDR']."', '".$this->BrowserHash."', '".$session_data."') ON DUPLICATE KEY UPDATE host = '".$_SERVER['HTTP_HOST']."', data = '".$session_data."', time = NOW(), expiration = (NOW() + INTERVAL ".$this->SecondOfLife." SECOND), hash = '".$this->BrowserHash."'";
+			$host = ($this->SubDomain != "" ? $this->SubDomain : $_SERVER['HTTP_HOST']);
+			$sql = "INSERT INTO sessions (id, host, time, expiration, last_ip, hash, data) VALUES ('".$this->valid_session($session_id)."', '".$host."', NOW(), (NOW() + INTERVAL ".$this->SecondOfLife." SECOND), '".$_SERVER['REMOTE_ADDR']."', '".$this->BrowserHash."', '".$session_data."') ON DUPLICATE KEY UPDATE host = '".$host."', data = '".$session_data."', time = NOW(), expiration = (NOW() + INTERVAL ".$this->SecondOfLife." SECOND), hash = '".$this->BrowserHash."'";
 			if(mysql_query($sql, $res) or die (mysql_error())){
 				return true;
 			}else{
